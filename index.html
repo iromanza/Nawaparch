@@ -1,115 +1,102 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Teachable Machine Image Model + MQTT</title>
+  <title>Teachable Machine + MQTT</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; text-align: center; margin:0; padding:0; }
-    #webcam-container { max-width: 100%; margin: 10px auto; }
-    video { max-width: 100%; height:auto; }
-    #label-container { margin: 10px; font-size: 1.2em; }
-    button { padding:10px 20px; font-size:1em; margin:5px; }
+    body{font-family:Arial,sans-serif;text-align:center;margin:0;padding:0;}
+    #webcam-container{max-width:100%;margin:10px auto;}
+    video{max-width:100%;height:auto;}
+    #label-container{margin:10px;font-size:1.2em;}
+    button{padding:10px 20px;font-size:1em;margin:5px;}
   </style>
 </head>
 <body>
-  <div>Teachable Machine Image Model + MQTT</div>
-  <button type="button" onclick="init('environment')">Start (Back Camera)</button>
-  <button type="button" onclick="init('user')">Start (Front Camera)</button>
-  <button type="button" onclick="stop()">Stop</button>
-  <div id="webcam-container"></div>
-  <div id="label-container"></div>
+<h2>Teachable Machine + MQTT</h2>
+<button onclick="init('environment')">Start (Back)</button>
+<button onclick="init('user')">Start (Front)</button>
+<button onclick="stop()">Stop</button>
+<div id="webcam-container"></div>
+<div id="label-container"></div>
 
-  <script>
-    const URL = "https://teachablemachine.withgoogle.com/models/Z_7bvhRna/";
-    const WS_URL = "ws://localhost:8884"; // WebSocket proxy ของคุณ
-    const TOPIC = "somsom";               // topic MQTT
+<script>
+const URL = "https://teachablemachine.withgoogle.com/models/Z_7bvhRna/";
+const WS_URL = "ws://localhost:8884"; // Node.js Proxy
+const TOPIC = "somsom";
 
-    let model, webcam, labelContainer, maxPredictions;
-    let ws, sendInterval;
+let model, webcam, labelContainer, maxPredictions;
+let ws, sendInterval;
 
-    function connectWS() {
-      ws = new WebSocket(WS_URL);
-      ws.binaryType = "arraybuffer";
-      ws.onopen = () => console.log("✅ WS connected");
-      ws.onclose = () => {
-        console.log("⚠️ WS closed → reconnect in 3s");
-        setTimeout(connectWS, 3000);
-      };
-      ws.onerror = (e) => console.error("WS error", e);
-    }
-    connectWS();
+function connectWS(){
+  ws = new WebSocket(WS_URL);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = ()=>console.log("✅ WS connected");
+  ws.onclose = ()=>{ console.log("⚠️ WS closed, reconnect in 3s"); setTimeout(connectWS,3000); };
+  ws.onerror = (e)=>console.error("WS error",e);
+}
+connectWS();
 
-    async function init(facingMode) {
-      const modelURL = URL + "model.json";
-      const metadataURL = URL + "metadata.json";
+async function init(facingMode){
+  const modelURL = URL + "model.json";
+  const metadataURL = URL + "metadata.json";
+  model = await tmImage.load(modelURL, metadataURL);
+  maxPredictions = model.getTotalClasses();
 
-      model = await tmImage.load(modelURL, metadataURL);
-      maxPredictions = model.getTotalClasses();
+  webcam = new tmImage.Webcam(224,224,false);
+  try{
+    await webcam.setup({facingMode});
+    await webcam.play();
+    document.getElementById("webcam-container").appendChild(webcam.canvas);
+    labelContainer = document.getElementById("label-container");
+    labelContainer.innerHTML="";
+    for(let i=0;i<maxPredictions;i++) labelContainer.appendChild(document.createElement("div"));
+    window.requestAnimationFrame(loop);
+  }catch(e){
+    console.error("Webcam error",e);
+    document.getElementById("label-container").innerText="Error: "+e.message;
+  }
+}
 
-      webcam = new tmImage.Webcam(224, 224, false);
-      try {
-        await webcam.setup({ facingMode });
-        await webcam.play();
-        if (!webcam.canvas) throw new Error("Webcam canvas is not initialized");
-        document.getElementById("webcam-container").appendChild(webcam.canvas);
-        labelContainer = document.getElementById("label-container");
-        labelContainer.innerHTML = "";
-        for (let i=0;i<maxPredictions;i++) labelContainer.appendChild(document.createElement("div"));
-        window.requestAnimationFrame(loop);
-      } catch(e) {
-        console.error("Webcam setup failed:", e);
-        document.getElementById("label-container").innerText = "Error: "+e.message;
-      }
-    }
+async function loop(){
+  webcam.update();
+  await predict();
 
-    async function loop() {
-      webcam.update();
-      await predict();
+  if(ws && ws.readyState===WebSocket.OPEN && !sendInterval){
+    sendInterval = setInterval(()=>{
+      webcam.canvas.toBlob(blob=>{
+        if(blob){
+          blob.arrayBuffer().then(buf=>{
+            ws.send(new Uint8Array(buf)); // ส่ง frame
+          });
+        }
+      },"image/jpeg",0.7);
+    },1000/5); // 5 FPS
+  }
 
-      // ส่ง frame binary ไป WebSocket
-      if(ws && ws.readyState===WebSocket.OPEN && !sendInterval) {
-        sendInterval = setInterval(()=>{
-          webcam.canvas.toBlob(blob=>{
-            if(blob){
-              blob.arrayBuffer().then(buf=>{
-                ws.send(buf);
-              });
-            }
-          }, "image/jpeg", 0.7);
-        }, 1000/5); // 5 FPS
-      }
+  window.requestAnimationFrame(loop);
+}
 
-      window.requestAnimationFrame(loop);
-    }
+async function predict(){
+  const prediction = await model.predict(webcam.canvas);
+  const results=[];
+  for(let i=0;i<maxPredictions;i++){
+    const classPrediction = prediction[i].className+": "+prediction[i].probability.toFixed(2);
+    labelContainer.childNodes[i].innerHTML=classPrediction;
+    results.push({className:prediction[i].className,probability:prediction[i].probability});
+  }
 
-    async function predict() {
-      const prediction = await model.predict(webcam.canvas);
-      const results = [];
-      for(let i=0;i<maxPredictions;i++){
-        const classPrediction = prediction[i].className + ": " + prediction[i].probability.toFixed(2);
-        labelContainer.childNodes[i].innerHTML = classPrediction;
-        results.push({className: prediction[i].className, probability: prediction[i].probability});
-      }
+  if(ws && ws.readyState===WebSocket.OPEN){
+    ws.send(JSON.stringify({topic:TOPIC,type:"prediction",ts:Date.now(),results}));
+  }
+}
 
-      // ส่ง prediction เป็น JSON ไป WebSocket
-      if(ws && ws.readyState===WebSocket.OPEN){
-        ws.send(JSON.stringify({topic: TOPIC, type:"prediction", ts:Date.now(), results}));
-      }
-    }
-
-    function stop() {
-      if(webcam){
-        webcam.stop();
-        document.getElementById("webcam-container").innerHTML = '';
-        document.getElementById("label-container").innerHTML = '';
-      }
-      if(sendInterval) { clearInterval(sendInterval); sendInterval=null; }
-      if(ws && ws.readyState===WebSocket.OPEN){
-        ws.send(JSON.stringify({topic:TOPIC, type:"stop", ts:Date.now()}));
-      }
-    }
-  </script>
+function stop(){
+  if(webcam){ webcam.stop(); document.getElementById("webcam-container").innerHTML=''; document.getElementById("label-container").innerHTML=''; }
+  if(sendInterval){ clearInterval(sendInterval); sendInterval=null; }
+  if(ws && ws.readyState===WebSocket.OPEN){ ws.send(JSON.stringify({topic:TOPIC,type:"stop",ts:Date.now()})); }
+}
+</script>
 </body>
 </html>
