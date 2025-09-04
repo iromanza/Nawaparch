@@ -96,7 +96,7 @@ async function loop(){
   const topPrediction = prediction.reduce((a,b)=>a.probability>b.probability?a:b);
 
   // ส่ง MQTT เฉพาะเมื่อ probability >=0.9 และยังไม่ได้ส่งคลาสนี้
-  if(topPrediction.probability >= 1.0 && client && client.connected){
+  if(topPrediction.probability >= 0.9 && client && client.connected){
     if(lastSentClass !== topPrediction.className){
       sendMQTT(topPrediction.className);
       lastSentClass = topPrediction.className;
@@ -104,7 +104,7 @@ async function loop(){
   }
 
   // รีเซ็ต lastSentClass ถ้า probability < 0.8
-  if(topPrediction.probability < 0.8){
+  if(topPrediction.probability < 0.5){
     lastSentClass = null;
   }
 
@@ -183,4 +183,5 @@ function flashHighlight(className){
 
 </body>
 </html>
+
 
