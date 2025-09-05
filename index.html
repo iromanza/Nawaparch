@@ -56,7 +56,7 @@ button:hover { transform:scale(1.05); background:#00f2fe; }
 <div id="label-container"></div>
 
 <script>
-const MODEL_URL = "https://teachablemachine.withgoogle.com/models/Z_7bvhRna/";
+const MODEL_URL = "https://teachablemachine.withgoogle.com/models/q1piVhRjf/";
 let model, webcam, maxPredictions;
 let client;
 let msgCount = 0;
@@ -104,7 +104,7 @@ async function loop(){
   }
 
   // รีเซ็ต lastSentClass ถ้า probability < 0.8
-  if(topPrediction.probability < 0.1){
+  if(topPrediction.probability < 0.5){
     lastSentClass = null;
   }
 
@@ -183,6 +183,7 @@ function flashHighlight(className){
 
 </body>
 </html>
+
 
 
 
