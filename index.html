@@ -104,7 +104,7 @@ async function loop(){
   }
 
   // รีเซ็ต lastSentClass ถ้า probability < 0.8
-  if(topPrediction.probability < 0.5){
+  if(topPrediction.probability < 0.1){
     lastSentClass = null;
   }
 
@@ -183,6 +183,7 @@ function flashHighlight(className){
 
 </body>
 </html>
+
 
 
 
